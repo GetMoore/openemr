@@ -162,19 +162,30 @@ function portalAuthorized($pid)
     }
 
     $return = [
-        'allowed' => false,
-        'created' => false,
+        'isAllowed' => false
+        ,'allowed' => [
+                'api' => false
+                ,'portal' => false
+        ],
+        'credentials' => [
+                'created' => false
+                ,'date' => null
+        ]
     ];
 
-    $portalStatus = sqlQuery("SELECT allow_patient_portal FROM patient_data WHERE pid = ?", [$pid]);
-    if ($portalStatus['allow_patient_portal'] == 'YES') {
-        $return['allowed'] = true;
-        $portalLogin = sqlQuery("SELECT pid FROM `patient_access_onsite` WHERE `pid`=?", [$pid]);
+    $portalStatus = sqlQuery("SELECT allow_patient_portal,prevent_portal_apps FROM patient_data WHERE pid = ?", [$pid]);
+    $return['allowed']['portal'] = $portalStatus['allow_patient_portal'] == 'YES';
+    $return['allowed']['api'] = strtoupper($portalStatus['prevent_portal_apps']) != 'YES';
+    if ($return['allowed']['portal'] || $return['allowed']['api']) {
+        $return['isAllowed'] = true;
+        $portalLogin = sqlQuery("SELECT pid,date_created FROM `patient_access_onsite` WHERE `pid`=?", [$pid]);
         if ($portalLogin) {
-            $return['created'] = true;
+            $return['credentials']['date'] = $portalLogin['date_created'];
+            $return['credentials']['created'] = true;
         }
         return $return;
     }
+    return $return;
 }
 
 function deceasedDays($days_deceased)
@@ -274,6 +285,13 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
     require_once("$srcdir/options.js.php");
     ?>
     <script>
+        // Process click on diagnosis for referential cds popup.
+        function referentialCdsClick(codetype, codevalue) {
+            top.restoreSession();
+            // Force a new window instead of iframe to address cross site scripting potential
+            dlgopen('../education.php?type=' + encodeURIComponent(codetype) + '&code=' + encodeURIComponent(codevalue), '_blank', 1024, 750,true);
+        }
+
         function oldEvt(apptdate, eventid) {
             let title = <?php echo xlj('Appointments'); ?>;
             dlgopen('../../main/calendar/add_edit_event.php?date=' + encodeURIComponent(apptdate) + '&eid=' + encodeURIComponent(eventid), '_blank', 800, 500, '', title);
@@ -665,7 +683,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
             $(".small_modal").on('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                dlgopen('', '', 380, 400, '', '', {
+                dlgopen('', '', 550, 550, '', '', {
                     buttons: [{
                         text: <?php echo xlj('Close'); ?>,
                         close: true,
@@ -1025,7 +1043,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
                         }
 
                         if ($GLOBALS["enable_oa"]) {
-                            if ($_POST['status_update'] === 'true') {
+                            if (($_POST['status_update'] ?? '') === 'true') {
                                 unset($_POST['status_update']);
                                 $showEligibility = true;
                                 $ok = EDI270::requestEligibleTransaction($pid);
@@ -1111,6 +1129,8 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
                     endif; //end if prw is activated
 
                     if (AclMain::aclCheckCore('patients', 'disclosure')) :
+                        $authWriteDisclosure = AclMain::aclCheckCore('patients', 'disclosure', '', 'write');
+                        $authAddonlyDisclosure = AclMain::aclCheckCore('patients', 'disclosure', '', 'addonly');
                         $dispatchResult = $ed->dispatch(CardRenderEvent::EVENT_HANDLE, new CardRenderEvent('disclosure'));
                         // disclosures expand collapse widget
                         $id = "disclosures_ps_expand";
@@ -1122,7 +1142,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
                             'btnLink' => 'disclosure_full.php',
                             'linkMethod' => 'html',
                             'bodyClass' => 'notab collapse show',
-                            'auth' => AclMain::aclCheckCore('patients', 'disclosure', '', 'write'),
+                            'auth' => ($authWriteDisclosure || $authAddonlyDisclosure),
                             'prependedInjection' => $dispatchResult->getPrependedInjection(),
                             'appendedInjection' => $dispatchResult->getAppendedInjection(),
                         ];
@@ -1267,11 +1287,10 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
 
                     if ($GLOBALS['portal_onsite_two_enable']) :
                         $dispatchResult = $ed->dispatch(CardRenderEvent::EVENT_HANDLE, new CardRenderEvent('portal'));
-
                         echo $twig->getTwig()->render('patient/partials/portal.html.twig', [
                             'portalAuthorized' => portalAuthorized($pid),
-                            'portalLoginHref' => $portal_login_href,
-                            'title' => xl('Patient Portal'),
+                            'portalLoginHref' => $GLOBALS['webroot'] . "/interface/patient_file/summary/create_portallogin.php",
+                            'title' => xl('Patient Portal') . ' / ' . xl('API Access'),
                             'id' => 'patient_portal',
                             'initiallyCollapsed' => (getUserSetting($id) == 0) ? false : true,
                             'prependedInjection' => $dispatchResult->getPrependedInjection(),
@@ -1630,6 +1649,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
                             $row['dayName'] = $dayname;
                             $row['pc_eventTime'] = sprintf("%02d", $disphour) . ":{$dispmin}";
                             $row['uname'] = text($row['fname'] . " " . $row['lname']);
+                            $row['jsEvent'] = attr_js(preg_replace("/-/", "", $row['pc_eventDate'])) . ', ' . attr_js($row['pc_eid']);
                             $past_appts[] = $row;
                         }
                     }

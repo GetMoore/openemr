@@ -1,7 +1,7 @@
 <?php
 
 /**
- * @package OpenEMR
+ * @package   OpenEMR
  * @link      http://www.open-emr.org
  * @author    Ken Chapple <ken@mi-squared.com>
  * @copyright Copyright (c) 2021 Ken Chapple <ken@mi-squared.com>
@@ -14,6 +14,7 @@ use OpenEMR\Cqm\Qdm\BaseTypes\DateTime;
 use OpenEMR\Cqm\Qdm\BaseTypes\Quantity;
 use OpenEMR\Cqm\Qdm\LaboratoryTestPerformed;
 use OpenEMR\Services\Qdm\Interfaces\QdmServiceInterface;
+use OpenEMR\Services\Qdm\QdmRecord;
 
 class LaboratoryTestService extends AbstractQdmService implements QdmServiceInterface
 {
@@ -44,15 +45,16 @@ class LaboratoryTestService extends AbstractQdmService implements QdmServiceInte
         return 'O.patient_id';
     }
 
-    public function makeQdmModel(array $record)
+    public function makeQdmModel(QdmRecord $recordObj)
     {
+        $record = $recordObj->getData();
         $result = 'Negative';
         if (
-            !empty($record['result']) &&
-            $record['result'] != 'Negative'
+            !empty($record['result'])
+            && $record['result'] != 'Negative'
         ) {
             $result = new Quantity([
-                'value' => $record['result'],
+                'value' => (int)$record['result'],
                 'unit' => $record['units']
             ]);
         }

@@ -19,6 +19,7 @@ require_once(__DIR__ . "/../Common/Session/SessionUtil.php");
 use DateInterval;
 use DateTimeImmutable;
 use Exception;
+use Google\Service\CloudHealthcare\FhirConfig;
 use GuzzleHttp\Client;
 use Lcobucci\JWT\Parser;
 use Lcobucci\JWT\Signer\Rsa\Sha256;
@@ -52,6 +53,7 @@ use OpenEMR\Common\Auth\OpenIDConnect\Repositories\IdentityRepository;
 use OpenEMR\Common\Auth\OpenIDConnect\Repositories\RefreshTokenRepository;
 use OpenEMR\Common\Auth\OpenIDConnect\Repositories\ScopeRepository;
 use OpenEMR\Common\Auth\OpenIDConnect\Repositories\UserRepository;
+use OpenEMR\Common\Auth\UuidUserAccount;
 use OpenEMR\Common\Crypto\CryptoGen;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Http\Psr17Factory;
@@ -59,6 +61,7 @@ use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Common\Session\SessionUtil;
 use OpenEMR\Common\Utils\RandomGenUtils;
 use OpenEMR\Common\Uuid\UuidRegistry;
+use OpenEMR\FHIR\Config\ServerConfig;
 use OpenEMR\FHIR\SMART\SmartLaunchController;
 use OpenEMR\RestControllers\SMART\SMARTAuthorizationController;
 use OpenEMR\Services\TrustedUserService;
@@ -611,8 +614,9 @@ class AuthorizationController
                 "logging global params",
                 ['site_addr_oath' => $GLOBALS['site_addr_oath'], 'web_root' => $GLOBALS['web_root'], 'site_id' => $_SESSION['site_id']]
             );
+            $fhirServiceConfig = new ServerConfig();
             $expectedAudience = [
-                $GLOBALS['site_addr_oath'] . $GLOBALS['web_root'] . '/apis/' . $_SESSION['site_id'] . "/fhir",
+                $fhirServiceConfig->getFhirUrl(),
                 $GLOBALS['site_addr_oath'] . $GLOBALS['web_root'] . '/apis/' . $_SESSION['site_id'] . "/api",
                 $GLOBALS['site_addr_oath'] . $GLOBALS['web_root'] . '/apis/' . $_SESSION['site_id'] . "/portal",
             ];
@@ -821,6 +825,17 @@ class AuthorizationController
 
 
         $claims = $_SESSION['claims'] ?? [];
+
+        $clientRepository = new ClientRepository();
+        $client = $clientRepository->getClientEntity($_SESSION['client_id']);
+        $clientName = "<" . xl("Client Name Not Found") . ">";
+        if (!empty($client)) {
+            $clientName =  $client->getName();
+        }
+
+        $uuidToUser = new UuidUserAccount($_SESSION['user_id']);
+        $userRole = $uuidToUser->getUserRole();
+        $userAccount = $uuidToUser->getUserAccount();
         require_once(__DIR__ . "/../../oauth2/provider/scope-authorize.php");
     }
 
@@ -851,6 +866,7 @@ class AuthorizationController
             $this->logger->debug("AuthorizationController->verifyLogin() login attempt failed", ['username' => $username, 'email' => $email, 'type' => $type]);
             return false;
         }
+        // TODO: should user_id be set to be a uuid here?
         if ($this->userId = $auth->getUserId()) {
             $_SESSION['user_id'] = $this->getUserUuid($this->userId, 'users');
             $this->logger->debug("AuthorizationController->verifyLogin() user login", ['user_id' => $_SESSION['user_id'],
@@ -858,10 +874,13 @@ class AuthorizationController
             return true;
         }
         if ($id = $auth->getPatientId()) {
-            $_SESSION['user_id'] = $this->getUserUuid($id, 'patient');
+            $puuid = $this->getUserUuid($id, 'patient');
+            // TODO: @adunsulag check with @sjpadgett on where this user_id is even used as we are assigning it to be a uuid
+            $_SESSION['user_id'] = $puuid;
             $this->logger->debug("AuthorizationController->verifyLogin() patient login", ['pid' => $_SESSION['user_id']
                 , 'username' => $username, 'email' => $email, 'type' => $type]);
-            $_SESSION['pid'] = $_SESSION['user_id'];
+            $_SESSION['pid'] = $id;
+            $_SESSION['puuid'] = $puuid;
             return true;
         }
 

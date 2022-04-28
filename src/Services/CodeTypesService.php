@@ -30,6 +30,7 @@ class CodeTypesService
     const CODE_TYPE_RXNORM = "RXNORM";
     const CODE_TYPE_RXCUI = "RXCUI";
     const CODE_TYPE_ICD10 = 'ICD10';
+    const CODE_TYPE_ICD10PCS = 'ICD10PCS';
     const CODE_TYPE_CPT = 'CPT';
     const CODE_TYPE_CVX = 'CVX';
     const CODE_TYPE_OID = array(
@@ -39,6 +40,33 @@ class CodeTypesService
         '2.16.840.1.113883.6.101' => self::CODE_TYPE_NUCC,
         '2.16.840.1.113883.6.88' => self::CODE_TYPE_RXNORM,
         '2.16.840.1.113883.6.90' => self::CODE_TYPE_ICD10,
+        '2.16.840.1.113883.6.103' => 'ICD9-CM',
+        '2.16.840.1.113883.6.104' => 'ICD9-PCS',
+        '2.16.840.1.113883.6.4' => 'ICD10-PCS',
+        '2.16.840.1.113883.6.14' => 'HCP',
+        '2.16.840.1.113883.6.285' => 'HCPCS',
+        '2.16.840.1.113883.5.2' => "HL7 Marital Status",
+        '2.16.840.1.113883.12.292' => 'CVX',
+        '2.16.840.1.113883.5.83' => 'HITSP C80 Observation Status',
+        '2.16.840.1.113883.3.26.1.1' => 'NCI Thesaurus',
+        '2.16.840.1.113883.3.88.12.80.20' => 'FDA',
+        "2.16.840.1.113883.4.9" => "UNII",
+        "2.16.840.1.113883.6.69" => "NDC",
+        '2.16.840.1.113883.5.14' => 'HL7 ActStatus',
+        '2.16.840.1.113883.6.259' => 'HL7 Healthcare Service Location',
+        '2.16.840.1.113883.12.112' => 'DischargeDisposition',
+        '2.16.840.1.113883.5.4' => 'HL7 Act Code',
+        '2.16.840.1.113883.1.11.18877' => 'HL7 Relationship Code',
+        '2.16.840.1.113883.6.238' => 'CDC Race',
+        '2.16.840.1.113883.6.177' => 'NLM MeSH',
+        '2.16.840.1.113883.5.1076' => "Religious Affiliation",
+        '2.16.840.1.113883.1.11.19717' => "HL7 ActNoImmunicationReason",
+        '2.16.840.1.113883.3.88.12.80.33' => "NUBC",
+        '2.16.840.1.113883.1.11.78' => "HL7 Observation Interpretation",
+        '2.16.840.1.113883.3.221.5' => "Source of Payment Typology",
+        '2.16.840.1.113883.6.13' => 'CDT',
+        '2.16.840.1.113883.18.2' => 'AdministrativeSex',
+        '2.16.840.1.113883.5.1' => 'AdministrativeGender'
     );
     /**
      * @var array
@@ -202,6 +230,8 @@ class CodeTypesService
                 $system = '2.16.840.1.113883.6.12';
             } elseif (self::CODE_TYPE_CVX == $codeType) {
                 $system = '2.16.840.1.113883.12.292';
+            } elseif (self::CODE_TYPE_ICD10PCS == $codeType) {
+                $system = '2.16.840.1.113883.6.4';
             }
         } else {
             if (self::CODE_TYPE_SNOMED_CT == $codeType) {
@@ -214,6 +244,13 @@ class CodeTypesService
                 $system = FhirCodeSystemConstants::LOINC;
             } elseif (self::CODE_TYPE_RXNORM == $codeType || self::CODE_TYPE_RXCUI == $codeType) {
                 $system = FhirCodeSystemConstants::RXNORM;
+            }
+        }
+        if (empty($system)) {
+            foreach (self::CODE_TYPE_OID as $oid => $system_code) {
+                if ($system_code == $codeType) {
+                    return $oid;
+                }
             }
         }
         return $system;
@@ -255,13 +292,13 @@ class CodeTypesService
                 break;
             default:
                 if (strpos($type, '2.16.840.1.113883.') !== false) {
-                    $type = $this->getCodeTypeFromSystem($type);
+                    $type = $this->getCodeSystemNameFromSystem($type);
                 }
         }
         return $type ?? "";
     }
 
-    public function getCodeTypeFromSystem($oid): string
+    public function getCodeSystemNameFromSystem($oid): string
     {
         return self::CODE_TYPE_OID[$oid] ?? '';
     }
@@ -335,10 +372,30 @@ class CodeTypesService
 
     public function lookupFromValueset($code, $codeType, $codeSystem)
     {
-        $value = sqlQuery(
-            "Select * From valueset Where code = ? And (code_type = ? Or code_type LIKE ? Or code_system = ?)",
-            array($code, $codeType, "$codeType%", $codeSystem)
-        );
+        if (empty($codeSystem) && empty($codeType)) {
+            $value = sqlQuery(
+                "Select * From valueset Where code = ? LIMIT 1",
+                array($code)
+            );
+        } else {
+            $value = sqlQuery(
+                "Select * From valueset Where code = ? And (code_type = ? Or code_type LIKE ? Or code_system = ?)",
+                array($code, $codeType, "$codeType%", $codeSystem)
+            );
+        }
         return $value;
+    }
+
+    public function dischargeOptionIdFromCode($formatted_code)
+    {
+        $listService = new ListService();
+        $ret = $listService->getOptionsByListName('discharge-disposition', ['codes' => $formatted_code]) ?? '';
+        return $ret[0]['option_id'];
+    }
+
+    public function dischargeCodeFromOptionId($option_id)
+    {
+        $listService = new ListService();
+        return $listService->getListOption('discharge-disposition', $option_id)['codes'] ?? '';
     }
 }
